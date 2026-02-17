@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gemini Assistant</title>
+</head>
+<body>
+    <h2>Gemini Assistant</h2>
+    <input id="msg" placeholder="Type message"/>
+    <button onclick="send()">Send</button>
+    <p id="reply"></p>
+
+<script>
+function send(){
+    fetch('/ask', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({message:document.getElementById('msg').value})
+    })
+    .then(r=>r.json())
+    .then(d=>document.getElementById('reply').innerText=d.reply)
+}
+</script>
+</body>
+</html>
