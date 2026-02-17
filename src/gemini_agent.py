@@ -1,13 +1,14 @@
-import google.generativeai as genai
 import os
 from dotenv import load_dotenv
+from groq import Groq
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-model = genai.GenerativeModel("gemini-2.0-flash")
-
-def ask_gemini(text):
-    response = model.generate_content(text)
-    return response.text
+def ask_groq(text):
+    chat = client.chat.completions.create(
+        messages=[{"role": "user", "content": text}],
+        model="llama3-8b-8192",
+    )
+    return chat.choices[0].message.content
