@@ -1,34 +1,79 @@
-# src/app.py
-from flask import Flask, request, jsonify, render_template
-from gemini_agent import ask_groq
 import os
+from fastapi import FastAPI, Request, WebSocket
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from dotenv import load_dotenv
+import google.generativeai as genai
+import uvicorn
 
-app = Flask(__name__, template_folder='../templates')
+load_dotenv()
 
-@app.route('/')
-def home():
-    return render_template('index.html')
+# --- PATH SETUP ---
+# This ensures the 'templates' folder is found correctly inside 'src'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
-@app.route('/ask', methods=['POST'])
-def ask():
-    data = request.get_json()
-    user_input = data.get('message', '')
-    
-    if not user_input:
-        return jsonify({'error': 'No message provided'}), 400
-    
-    # Get response with error handling
-    reply = ask_groq(user_input)
-    
-    # Check if it's an error message
-    if reply.startswith('❌'):
-        return jsonify({
-            'response': reply,
-            'error': True,
-            'suggestion': 'Wait 1 minute or check API key'
-        }), 200  # Return 200 but show error in UI
-    
-    return jsonify({'response': reply, 'error': False})
+# --- GEMINI SETUP ---
+# Match the key name in your .env (GEMINI_API_KEY)
+api_key = os.getenv("GEMINI_API_KEY")
 
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+if not api_key:
+    print("❌ ERROR: GEMINI_API_KEY not found in .env file")
+else:
+    print("✅ API Key loaded successfully")
+
+genai.configure(api_key=api_key)
+
+# Using Gemini 2.0 Flash (latest high-speed model)
+model = genai.GenerativeModel(
+    model_name='gemini-2.5-flash', # Use the exact string you saw in check_models.py
+    system_instruction="You are SARA, a helpful voice assistant. Keep answers very short (1-2 sentences)."
+)
+
+app = FastAPI()
+
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.websocket("/ws/chat")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    print("🚀 WebSocket Connected to Client")
+    
+    try:
+        while True:
+            # Receive message from frontend
+            user_text = await websocket.receive_text()
+            print(f"📩 User Message: {user_text}")
+            
+            try:
+                # Use generate_content_async for proper FastAPI streaming
+                response = await model.generate_content_async(user_text, stream=True)
+                
+                print("🧠 Gemini is thinking...")
+                async for chunk in response:
+                 if chunk.text:
+                    # Strip extra spaces if necessary, but send the text
+                    await websocket.send_text(chunk.text)
+            
+            
+                
+                # Signal the frontend that the response is finished
+                await websocket.send_text("<END>")
+                print("✅ Response fully streamed")
+
+            except Exception as e:
+                error_msg = f"Gemini Error: {str(e)}"
+                print(f"❌ {error_msg}")
+                await websocket.send_text(error_msg)
+                await websocket.send_text("<END>")
+
+    except Exception as e:
+        print(f"⚠️ Connection closed: {e}")
+    finally:
+        await websocket.close()
+
+if __name__ == "__main__":
+    # Run server on port 5000
+    uvicorn.run(app, host="0.0.0.0", port=5000)
